@@ -1,0 +1,52 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Mohamed Rizal TA"
+date: "9/20/2020"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Synopsis
+
+In this project we will try to fit a model and predict the manner in which activity was done by a group of people. Six participiants involved were equiped with devices having accelerometers on belt, forearm, arm and dumbell. And each participiant were told to perform barbell lifts correctly and incorrectly in five different ways. For more information on the data set, check 'Weight Lifting Excerises' on the [Groupware@LES](http://groupware.les.inf.puc-rio.br/har) site.
+
+## Loading Data
+
+First, we will load neccessary libraries required.
+
+```{r}
+library(caret)
+library(rattle)
+```
+
+We will check if data set is there in the working directory. If not, we will download it from the link provided.
+
+```{r}
+if(!file.exists("pml-training.csv")){
+    trainUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+    download.file(trainUrl, destfile = "pml-training.csv", method = "curl")
+}
+if(!file.exists("pml-testing.csv")){
+    testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+    download.file(testUrl, destfile = "pml-testing.csv", method = "curl")
+    }
+```
+
+We will now load training and testing data sets from the csv files using R's `read.csv` function. 
+
+```{r}
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+```
+
+
+
+
+
+
+
