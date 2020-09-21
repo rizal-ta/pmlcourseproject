@@ -13,15 +13,17 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 
 ## Synopsis
 
-In this project we will try to fit a model and predict the manner in which activity was done by a group of people. Six participiants involved were equiped with devices having accelerometers on belt, forearm, arm and dumbell. And each participiant were told to perform barbell lifts correctly and incorrectly in five different ways. For more information on the data set, check 'Weight Lifting Excerises' on the [Groupware@LES](http://groupware.les.inf.puc-rio.br/har) site.
+In this project we will try to fit a model and predict the manner in which activity was done by a group of people. Six participants involved were equipped with devices having accelerometers on belt, forearm, arm and dumbbell. And each participant were told to perform barbell lifts correctly and incorrectly in five different ways. For more information on the data set, check 'Weight Lifting Exercises' on the [Groupware@LES](http://groupware.les.inf.puc-rio.br/har) site.
 
-## Loading Data
+## Loading Data and processing
 
-First, we will load neccessary libraries required.
+First, we will load necessary libraries required.
 
 ```{r}
 library(caret)
+library(rpart)
 library(rattle)
+library(dplyr)
 ```
 
 We will check if data set is there in the working directory. If not, we will download it from the link provided.
@@ -37,12 +39,185 @@ if(!file.exists("pml-testing.csv")){
     }
 ```
 
-We will now load training and testing data sets from the csv files using R's `read.csv` function. 
+We will now load training and testing data sets from the csv files using R's `read.csv` function. We will use testing data given for validation. 
 
 ```{r}
 training <- read.csv("pml-training.csv")
-testing <- read.csv("pml-testing.csv")
+validation <- read.csv("pml-testing.csv")
 ```
+
+Let's check the structure of the training data set with `str` function
+
+```{r}
+str(training)
+```
+As you can see training data set has 19622 made on 160 variables. First 7 variables give us details of the subject and time stamps which we don't need to make our model. Some variables are recorded as `character`. We will convert them into `numeric` type. 
+
+```{r}
+# for training data
+training <- training %>%
+  as_tibble() %>%
+  select(-(1:7)) %>%
+  mutate(across(1:ncol(.)-1, as.numeric), classe = as.factor(classe))
+# for validation data
+validation <- validation %>%
+  as_tibble() %>%
+  select(-(1:7)) %>%
+  mutate(across(1:ncol(.)-1, as.numeric))
+```
+
+We will now check number of NA values in each variables
+
+```{r}
+NAsum <- colSums(is.na(training))
+unique(NAsum)
+```
+
+As we can see above, if we take a look on unique set of the number of NA values for each variable, we can understand that some sets have 0 NA values but others are mostly full of NA values. So we will only take those with 0 NA values into consideration to make this model.
+
+```{r}
+noNAindex <- which(NAsum == 0)
+training <- training[, noNAindex]
+validation <- validation[, noNAindex]
+```
+
+We can check whether there are any variables with near zero variance with `caret` package's `nearZeroVar` function.
+
+```{r}
+nearZeroVar(training)
+```
+
+## Training Data
+
+We will use the 70% of training data set for training and the rest for testing. We will use the given testing data set of 20 observations for validation. We will use `createDataPartition` function from `caret` to do this.
+
+```{r}
+set.seed(3344)
+tmp <- training
+inTrain <- createDataPartition(training$classe, p = 0.7, list = FALSE)
+training <- tmp[inTrain,]
+testing <- tmp[-inTrain,]
+```
+
+Other thing we can do is find highly correlated variables. We can do this by first making a correlation matrix using `cor` function. And checking for high correlation using `caret` package's `findCorrelation` function. We will use a cut off of 0.75.
+
+```{r}
+corMatrix <- cor(training[,-53])
+highlycorrvar <- findCorrelation(corMatrix, cutoff = 0.75)
+names(training[,highlycorrvar])
+```
+
+These are the names of the highly correlated variables.
+
+## Model building
+
+We will build the model using three methods
+
+1. Classification trees
+2. Random forest
+3. Generalized boosted model
+
+### Classification tree
+
+We will first train the data using `rpart` function from `rpart` package and plot the model as a dendrogram using `rattle` package's `fancyRpartPlot` function
+
+```{r}
+classTree <- rpart(classe ~ ., method = "class", data = training)
+fancyRpartPlot(classTree)
+```
+
+Now we will predict using this model for testing data and also make a confusion matrix.
+
+```{r}
+classTreePred <- predict(classTree, testing, type = "class")
+classTreeconf <- confusionMatrix(classTreePred, testing$classe)
+classTreeconf
+```
+We can also plot the confusion matrix to get visualization
+
+```{r}
+plot(classTreeconf$table, 
+     main = paste("Classification Tree Accuracy =",round(classTreeconf$overall['Accuracy'],4)))
+```
+
+### Random Forest
+
+We will make the model using random forest method using `caret`.
+```{r cache=TRUE}
+rfcontrol <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+ranFor <- train(classe ~ . , method = "rf", data = training, trControl = rfcontrol)
+ranFor$finalModel
+```
+
+We can plot this model to get a model for number of randomly selected predictors versus accuracy during cross-validation. 
+
+```{r}
+plot(ranFor)
+```
+
+We can see that up to around 25 predictors, there is not that much change in accuracy. But after that it goes down a lot. And now will use this to predict the testing data and also make confusion matrix.
+
+```{r}
+ranForpred <- predict(ranFor, testing)
+ranForconf <- confusionMatrix(ranForpred, testing$classe)
+ranForconf
+```
+
+We can also plot this.
+
+```{r}
+plot(ranForconf$table, main = paste("Random Forest accuracy =", round(ranForconf$overall['Accuracy'], 4)))
+```
+
+### Generalized Boosted model
+
+We will make generalized boosted model using training data with `caret` package.
+
+```{r cache=TRUE}
+gbmcontrol <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+gbmmodel <- train(classe ~ ., method = "gbm", data = training, trControl = gbmcontrol, verbose = FALSE)
+gbmmodel
+```
+
+If we plot this model, we can get an idea on how the final model is chosen which have maximum accuracy.
+
+```{r}
+plot(gbmmodel)
+```
+
+We will now use this to predict the testing data and also make a confusion matrix.
+
+```{r}
+gbmpred <- predict(gbmmodel, testing)
+gbmconf <- confusionMatrix(gbmpred, testing$classe)
+gbmconf
+```
+
+Now we will plot this confusion matrix.
+```{r}
+plot(gbmconf$table, main = paste("Generalized Boosting Accuracy =", round(gbmconf$overall['Accuracy'], 4)))
+```
+## Results
+
+As we can see, random forest method has more accuracy than the other two. We will use this for predicting validation data.
+
+```{r}
+finalpred <- predict(ranFor, validation)
+finalpred
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
